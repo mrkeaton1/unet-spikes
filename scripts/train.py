@@ -27,9 +27,9 @@ def model_step(net, criterion, masker, batch, device, masking=True):
     X_masked = X * (1 - the_mask.to(torch.float32))
     assert X_masked.sum() <= X.sum()
 
-    X_smoothed = net((X_masked).to(torch.float32))
+    X_smoothed = net((X_masked).to(dtype=torch.float32, device=device))
     loss = criterion(
-        X_smoothed[the_mask].to(torch.float32), X[the_mask].to(torch.float32)
+        X_smoothed[the_mask].to(dtype=torch.float32, device=device), X[the_mask].to(dtype=torch.float32, device=device)
     )
     return loss, X_smoothed, X, the_mask, rate
 
@@ -46,19 +46,21 @@ def log_metrics(preds, targets, mask, logger, prefix, epoch):
 
 
 if __name__ == "__main__":
+    import sys
     data_source = "../data/config/lorenz.yaml"
-    num_epochs = 250  # or the number of epochs you want to train for
-    learning_rate = 1e-2  # or the learning rate you want to use
+    num_epochs = 100  # or the number of epochs you want to train for
+    learning_rate = float(sys.argv[1])  # or the learning rate you want to use
+    print('Training on learning rate ' + str(learning_rate))
 
     # Instantiate your model here
     net = cnn.CNN(29, 10)
 
-    logger = SummaryWriter()
+    logger = SummaryWriter('Learning_rate='+str(learning_rate))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # M1 Mac-specific
     if device == torch.device("cpu") and torch.backends.mps.is_available():
         device = torch.device("mps")
-    device = torch.device("cpu")
+    # device = torch.device("cpu")
 
     net = net.to(device)
     # criterion = nn.PoissonNLLLoss(log_input=True)
@@ -66,8 +68,8 @@ if __name__ == "__main__":
     masker = mask.Masker()
     train_dataset = SpikesDataset(data_source)
     val_dataset = SpikesDataset(data_source, DATASET_MODES.val)
-    train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=128, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False)
 
     optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate, amsgrad=True)
 
@@ -85,6 +87,12 @@ if __name__ == "__main__":
 
             total_epoch = epoch * len(train_loader) + batch_num
             log_metrics(preds, targets, the_mask, logger, "train", total_epoch)
+        
+        # At end of train loop, log some more
+        logger.add_image("train/preds", preds[-1], dataformats='HW', global_step=epoch)
+        logger.add_image("train/targets", targets[-1], dataformats='HW', global_step=epoch)
+        logger.add_image("train/the_mask", the_mask[-1], dataformats='HW', global_step=epoch)
+        logger.add_image("train/rate", rate[-1], dataformats='HW', global_step=epoch)
 
         # Validate loop
         net.eval()
@@ -105,6 +113,12 @@ if __name__ == "__main__":
                         ** 2
                     )
                     logger.add_scalar("val/r2", r2, total_epoch)
+
+        # At end of val loop, log some more
+        logger.add_image("val/preds", preds[-1], dataformats='HW', global_step=epoch)
+        logger.add_image("val/targets", targets[-1], dataformats='HW', global_step=epoch)
+        logger.add_image("val/the_mask", the_mask[-1], dataformats='HW', global_step=epoch)
+        logger.add_image("val/rate", rate[-1], dataformats='HW', global_step=epoch)
 
         # Save model
         torch.save(net.state_dict(), os.path.join(logger.get_logdir(), f"model.pt"))

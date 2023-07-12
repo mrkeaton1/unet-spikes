@@ -1,6 +1,5 @@
 from torch import nn
 
-
 class CNN(nn.Module):
     def __init__(self, dim, latent_dim):
         super(CNN, self).__init__()
@@ -21,4 +20,12 @@ class CNN(nn.Module):
         X = self.bn(X)
         X = self.relu(X)
         X = self.unembedding(X)
+        X = self.relu(X)
         return X
+    
+    def embed(self, X):
+        return self.embedding(X)
+    
+    def smooth(self, X):
+        X = self.embedding(X)
+        return self.smoothing(X)
